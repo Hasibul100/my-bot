@@ -1,5 +1,5 @@
 /**
- * HRTrader — Browser console script
+ * HRTrader — Browser console script (Multi-Platform: Quotex & Pocket Option)
  * Paste entire file into DevTools Console (F12) on the trading platform page.
  */
 (function () {
@@ -595,11 +595,29 @@
   let tapSettleTimer = null;
   let lastTapAt = 0;
 
+  // MULTI-PLATFORM BUTTON DETECTOR (Quotex & Pocket Option)
   function getTradeButtons() {
-    return {
-      up: document.querySelector(".btn.btn-call") || document.querySelector(".btn-call"),
-      down: document.querySelector(".btn.btn-put") || document.querySelector(".btn-put"),
-    };
+    // 1. Quotex selectors
+    let upBtn = document.querySelector(".btn.btn-call") || document.querySelector(".btn-call");
+    let downBtn = document.querySelector(".btn.btn-put") || document.querySelector(".btn-put");
+
+    // 2. Pocket Option selectors (যদি Quotex-এরটা না পাওয়া যায়)
+    if (!upBtn) {
+      upBtn = document.querySelector(".btn-call") || 
+              document.querySelector(".btn.call") || 
+              document.querySelector('[data-action="call"]') ||
+              document.querySelector('.divider-vertical[data-type="up"]') ||
+              document.querySelector('.control__up .btn'); // Pocket Option specific fallback
+    }
+    if (!downBtn) {
+      downBtn = document.querySelector(".btn-put") || 
+                document.querySelector(".btn.put") || 
+                document.querySelector('[data-action="put"]') ||
+                document.querySelector('.divider-vertical[data-type="down"]') ||
+                document.querySelector('.control__down .btn'); // Pocket Option specific fallback
+    }
+
+    return { up: upBtn, down: downBtn };
   }
 
   function pickTradeButton() {
@@ -614,14 +632,20 @@
   function placeTrade() {
     const btn = pickTradeButton();
     if (!btn) {
-      console.error("HRTrader: trade button not found for direction:", settings.direction);
+      console.error("HRTrader: target button not found for platform/direction:", settings.direction);
       return false;
     }
     btn.click();
-    const side = (btn.classList.contains("btn-call") || btn.id.includes("call")) ? "UP" : "DOWN";
+    
+    // ট্রেডের দিক লগ করার জন্য চেক
+    const isUp = btn.classList.contains("btn-call") || 
+                 btn.id.includes("call") || 
+                 (btn.getAttribute("data-action") && btn.getAttribute("data-action").includes("call")) ||
+                 (btn.closest && btn.closest('.control__up'));
+                 
+    const side = isUp ? "UP" : "DOWN";
     console.log("HRTrader trade executed:", side, "| mode:", settings.direction);
     
-    // ট্রেড সফলভাবে প্লেস হওয়ার পর এখানে স্ক্যান অফ করে দেওয়া হচ্ছে
     stopScanSession();
     console.log("HRTrader: Scan auto-stopped immediately after placing trade.");
     return true;
@@ -794,10 +818,7 @@
 
   syncPanelUI();
   console.log(
-    "HRTrader loaded — 1 tap: scan+trade | 1 tap: stop scan | 3 taps: settings | delay:",
-    settings.delaySec + "s",
-    "| dir:",
-    settings.direction
+    "HRTrader Multi-Platform Loaded — Ready for Quotex / Pocket Option"
   );
   }
 
