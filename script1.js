@@ -1,0 +1,826 @@
+/**
+ * HRTrader — Browser console script (Multi-Platform: Quotex & Pocket Option)
+ * Paste entire file into DevTools Console (F12) on the trading platform page.
+ */
+(function () {
+  if (window.__HRTrader_ACTIVE__) {
+    console.warn("HRTrader already running.");
+    return;
+  }
+
+  const HRTrader_PASSWORD = "Jokar99T";
+  const PW_STORAGE_KEY = "hrtrader_saved_password";
+
+  function getSavedPassword() {
+    try {
+      return (
+        localStorage.getItem(PW_STORAGE_KEY) ||
+        sessionStorage.getItem(PW_STORAGE_KEY) ||
+        ""
+      );
+    } catch {
+      return "";
+    }
+  }
+
+  function rememberPassword(pw) {
+    try {
+      localStorage.setItem(PW_STORAGE_KEY, pw);
+    } catch {
+      try {
+        sessionStorage.setItem(PW_STORAGE_KEY, pw);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function showPasswordGate(onSuccess) {
+    const loginStyle = document.createElement("style");
+    loginStyle.id = "hrtrader-login-style";
+    loginStyle.textContent = `
+      #hrtrader-login-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.72);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      #hrtrader-login-box {
+        width: min(320px, calc(100vw - 32px));
+        padding: 22px 20px 18px;
+        border-radius: 14px;
+        background: linear-gradient(160deg, #0d1f14 0%, #0a0f0c 100%);
+        border: 1px solid rgba(0, 255, 102, 0.4);
+        box-shadow: 0 0 50px rgba(0, 255, 102, 0.2);
+      }
+      #hrtrader-login-box h3 {
+        margin: 0 0 6px;
+        text-align: center;
+        color: #00ff66;
+        font-size: 18px;
+        letter-spacing: 0.08em;
+      }
+      #hrtrader-login-box p {
+        margin: 0 0 14px;
+        text-align: center;
+        font-size: 12px;
+        color: #9fd4ad;
+      }
+      #hrtrader-login-input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 11px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 255, 102, 0.35);
+        background: rgba(0, 0, 0, 0.4);
+        color: #fff;
+        font-size: 15px;
+        outline: none;
+      }
+      #hrtrader-login-input:focus {
+        border-color: #00ff66;
+        box-shadow: 0 0 0 2px rgba(0, 255, 102, 0.2);
+      }
+      #hrtrader-login-btn {
+        width: 100%;
+        margin-top: 12px;
+        padding: 12px;
+        border: none;
+        border-radius: 8px;
+        background: #00ff66;
+        color: #052210;
+        font-weight: 700;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      #hrtrader-login-err {
+        min-height: 18px;
+        margin-top: 8px;
+        text-align: center;
+        font-size: 12px;
+        color: #ff6b6b;
+        font-weight: 600;
+      }
+    `;
+    document.head.appendChild(loginStyle);
+
+    const overlay = document.createElement("div");
+    overlay.id = "hrtrader-login-overlay";
+    overlay.innerHTML = `
+      <div id="hrtrader-login-box">
+        <h3>HRTrader Login</h3>
+        <p>Enter password to continue</p>
+        <input id="hrtrader-login-input" type="password" autocomplete="current-password" />
+        <button type="button" id="hrtrader-login-btn">Enter</button>
+        <p id="hrtrader-login-err"></p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector("#hrtrader-login-input");
+    const errEl = overlay.querySelector("#hrtrader-login-err");
+    const btn = overlay.querySelector("#hrtrader-login-btn");
+
+    input.value = getSavedPassword();
+
+    function tryLogin() {
+      const pw = input.value;
+      if (pw === HRTrader_PASSWORD) {
+        rememberPassword(pw);
+        overlay.remove();
+        loginStyle.remove();
+        initHRTrader();
+        return;
+      }
+      errEl.textContent = "Wrong password";
+      input.focus();
+      input.select();
+    }
+
+    btn.addEventListener("click", tryLogin);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        tryLogin();
+      }
+    });
+
+    setTimeout(() => input.focus(), 50);
+    if (input.value) {
+      setTimeout(() => input.select(), 60);
+    }
+  }
+
+  function initHRTrader() {
+    window.__HRTrader_ACTIVE__ = true;
+
+  const LOGO_URL =
+    "https://cdn.phototourl.com/free/2026-05-22-7e33af14-9942-4c1e-9c27-b94db59f36b5.png";
+  const LABEL = "HRTrader";
+  const STORAGE_KEY = "hrtrader_settings_v1";
+  const TAP_REQUIRED = 3;
+  const TAP_SETTLE_MS = 380;
+  const TAP_SEQUENCE_MS = 650;
+
+  const defaults = { delaySec: 10, direction: "random" };
+
+  function parseStored(raw) {
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    const delaySec = Math.max(1, Math.min(120, Number(s.delaySec) || defaults.delaySec));
+    const direction = ["up", "down", "random"].includes(s.direction)
+      ? s.direction
+      : defaults.direction;
+    return { delaySec, direction };
+  }
+
+  function loadSettings() {
+    const sources = [
+      () => localStorage.getItem(STORAGE_KEY),
+      () => sessionStorage.getItem(STORAGE_KEY),
+      () => {
+        const b = window.__HRTrader_SETTINGS_BACKUP__;
+        return b ? JSON.stringify(b) : null;
+      },
+    ];
+    for (const get of sources) {
+      try {
+        const parsed = parseStored(get());
+        if (parsed) return parsed;
+      } catch {
+        /* try next */
+      }
+    }
+    return { ...defaults };
+  }
+
+  function saveSettings(s) {
+    const json = JSON.stringify(s);
+    window.__HRTrader_SETTINGS_BACKUP__ = { ...s };
+    let ok = false;
+    try {
+      localStorage.setItem(STORAGE_KEY, json);
+      ok = true;
+    } catch {
+      /* blocked */
+    }
+    try {
+      sessionStorage.setItem(STORAGE_KEY, json);
+      ok = true;
+    } catch {
+      /* blocked */
+    }
+    return ok;
+  }
+
+  let settings = loadSettings();
+
+  const style = document.createElement("style");
+  style.textContent = `
+    #hrtrader-widget {
+      position: fixed;
+      z-index: 2147483646;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.45));
+      transition: filter 0.25s ease;
+    }
+    #hrtrader-widget.hrtrader-glow {
+      filter: drop-shadow(0 0 12px #00ff66) drop-shadow(0 0 28px #00ff66)
+        drop-shadow(0 0 48px rgba(0,255,102,0.55));
+    }
+    #hrtrader-widget:active { cursor: grabbing; }
+    #hrtrader-logo-wrap {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    #hrtrader-logo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+    }
+    #hrtrader-label {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #fff;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+    #hrtrader-widget.hrtrader-glow #hrtrader-label {
+      color: #b8ffd4;
+      text-shadow: 0 0 8px #00ff66, 0 0 18px #00ff66, 0 0 32px rgba(0,255,102,0.8);
+    }
+    #hrtrader-scan-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483645;
+      pointer-events: none;
+      overflow: hidden;
+      display: none;
+    }
+    #hrtrader-scan-overlay.hrtrader-scan-on { display: block; }
+    #hrtrader-scan-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 5px;
+      background: linear-gradient(
+        180deg,
+        #3ad67f 0%,
+        #22c464 16%,
+        #14ad56 40%,
+        #009e4a 58%,
+        #008a40 82%,
+        rgba(0, 110, 48, 0.55) 100%
+      );
+      box-shadow:
+        0 -88px 130px rgba(0, 220, 115, 1),
+        0 -68px 100px rgba(0, 200, 100, 1),
+        0 -50px 78px rgba(0, 185, 92, 0.98),
+        0 -34px 58px rgba(0, 170, 85, 0.96),
+        0 -22px 40px rgba(0, 155, 78, 0.94),
+        0 -12px 26px rgba(0, 140, 72, 0.9),
+        0 -6px 14px rgba(0, 125, 65, 0.88),
+        0 0 28px rgba(0, 150, 75, 0.85),
+        0 0 55px rgba(0, 130, 65, 0.55);
+      top: -8%;
+      animation: hrtrader-scan-move 1.45s linear infinite;
+    }
+    @keyframes hrtrader-scan-move {
+      0% { top: -8%; }
+      100% { top: 108%; }
+    }
+    #hrtrader-panel {
+      position: fixed;
+      z-index: 2147483647;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      pointer-events: none;
+      width: min(300px, calc(100vw - 32px));
+      padding: 18px 16px 14px;
+      border-radius: 14px;
+      background: linear-gradient(160deg, #0d1f14 0%, #0a0f0c 100%);
+      border: 1px solid rgba(0,255,102,0.35);
+      box-shadow: 0 0 40px rgba(0,255,102,0.25), 0 12px 40px rgba(0,0,0,0.55);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: #e8ffe8;
+    }
+    #hrtrader-panel.hrtrader-panel-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #hrtrader-panel h3 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+      color: #00ff66;
+      letter-spacing: 0.06em;
+    }
+    #hrtrader-panel .hrtrader-row {
+      margin-bottom: 14px;
+    }
+    #hrtrader-panel label {
+      display: block;
+      font-size: 12px;
+      color: #9fd4ad;
+      margin-bottom: 6px;
+    }
+    #hrtrader-panel .hrtrader-input-block {
+      display: block;
+      width: 100%;
+    }
+    #hrtrader-panel .hrtrader-time-input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,255,102,0.3);
+      background: rgba(0,0,0,0.35);
+      color: #fff;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #hrtrader-panel .hrtrader-time-input:focus {
+      border-color: #00ff66;
+      box-shadow: 0 0 0 2px rgba(0,255,102,0.2);
+    }
+    #hrtrader-panel .hrtrader-time-input::-webkit-outer-spin-button,
+    #hrtrader-panel .hrtrader-time-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    #hrtrader-panel .hrtrader-time-input[type="number"] {
+      -moz-appearance: textfield;
+    }
+    #hrtrader-panel .hrtrader-save-btn {
+      flex-shrink: 0;
+      padding: 10px 14px;
+      border: none;
+      border-radius: 8px;
+      background: #00ff66;
+      color: #052210;
+      font-weight: 700;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    #hrtrader-panel .hrtrader-save-btn:active {
+      background: #00e65c;
+    }
+    #hrtrader-panel .hrtrader-save-btn-block {
+      display: block;
+      width: 100%;
+      margin-top: 4px;
+      padding: 12px 14px;
+      font-size: 14px;
+    }
+    #hrtrader-dir-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #hrtrader-dir-group button {
+      padding: 11px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,255,102,0.25);
+      background: rgba(0,0,0,0.3);
+      color: #dfffe8;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    #hrtrader-dir-group button.hrtrader-dir-active {
+      background: rgba(0,255,102,0.18);
+      border-color: #00ff66;
+      box-shadow: 0 0 16px rgba(0,255,102,0.35);
+      color: #00ff66;
+    }
+    #hrtrader-panel-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483646;
+      background: rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      pointer-events: none;
+    }
+    #hrtrader-panel-backdrop.hrtrader-backdrop-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #hrtrader-panel-hint {
+      margin: 10px 0 0;
+      font-size: 11px;
+      text-align: center;
+      color: #6a9a78;
+      line-height: 1.35;
+    }
+    #hrtrader-save-status {
+      min-height: 18px;
+      margin: 8px 0 0;
+      font-size: 12px;
+      text-align: center;
+      color: #00ff66;
+      font-weight: 600;
+    }
+    #hrtrader-panel button,
+    #hrtrader-panel input {
+      touch-action: manipulation;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const scanOverlay = document.createElement("div");
+  scanOverlay.id = "hrtrader-scan-overlay";
+  scanOverlay.innerHTML = '<div id="hrtrader-scan-line"></div>';
+  document.body.appendChild(scanOverlay);
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "hrtrader-panel-backdrop";
+
+  const panel = document.createElement("div");
+  panel.id = "hrtrader-panel";
+  panel.innerHTML = `
+    <h3>HRTrader Settings</h3>
+    <div class="hrtrader-row">
+      <label>Scan delay (seconds)</label>
+      <input id="hrtrader-delay-input" class="hrtrader-time-input hrtrader-input-block" type="number" min="1" max="120" step="1" />
+    </div>
+    <div class="hrtrader-row">
+      <label>Trade direction</label>
+      <div id="hrtrader-dir-group">
+        <button type="button" data-dir="up">Up</button>
+        <button type="button" data-dir="down">Down</button>
+        <button type="button" data-dir="random">Random</button>
+      </div>
+    </div>
+    <button type="button" id="hrtrader-save-all" class="hrtrader-save-btn hrtrader-save-btn-block">Save</button>
+    <p id="hrtrader-save-status"></p>
+    <p id="hrtrader-panel-hint">3 taps on icon to open · tap outside to close</p>
+  `;
+  document.body.appendChild(backdrop);
+  document.body.appendChild(panel);
+
+  panel.addEventListener("mousedown", (e) => e.stopPropagation());
+  panel.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
+  panel.addEventListener("touchend", (e) => e.stopPropagation());
+
+  const delayInput = panel.querySelector("#hrtrader-delay-input");
+  const saveStatus = panel.querySelector("#hrtrader-save-status");
+  const dirButtons = panel.querySelectorAll("#hrtrader-dir-group button");
+  let saveStatusTimer = null;
+  let pendingDirection = settings.direction;
+
+  function syncDirectionUI(dir) {
+    dirButtons.forEach((btn) => {
+      btn.classList.toggle("hrtrader-dir-active", btn.dataset.dir === dir);
+    });
+  }
+
+  function syncPanelUI() {
+    delayInput.value = String(settings.delaySec);
+    pendingDirection = settings.direction;
+    syncDirectionUI(pendingDirection);
+  }
+
+  function openPanel() {
+    syncPanelUI();
+    backdrop.classList.add("hrtrader-backdrop-open");
+    panel.classList.add("hrtrader-panel-open");
+  }
+
+  function closePanel() {
+    backdrop.classList.remove("hrtrader-backdrop-open");
+    panel.classList.remove("hrtrader-panel-open");
+    saveStatus.textContent = "";
+  }
+
+  function parseDelayInput() {
+    const n = Number(String(delayInput.value).trim());
+    if (!Number.isFinite(n) || n < 1) return defaults.delaySec;
+    return Math.max(1, Math.min(120, Math.round(n)));
+  }
+
+  function applyAllSettings() {
+    settings.delaySec = parseDelayInput();
+    settings.direction = pendingDirection;
+    delayInput.value = String(settings.delaySec);
+    const stored = saveSettings(settings);
+    syncPanelUI();
+    closePanel();
+    console.log(
+      "HRTrader: settings saved | delay:",
+      settings.delaySec + "s",
+      "| dir:",
+      settings.direction,
+      stored ? "" : "(storage blocked)"
+    );
+  }
+
+  function bindPanelAction(el, handler) {
+    let lock = false;
+    const run = (e) => {
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+      if (lock) return;
+      lock = true;
+      setTimeout(() => {
+        lock = false;
+      }, 300);
+      handler();
+    };
+    el.addEventListener("pointerup", run);
+    el.addEventListener("click", run);
+  }
+
+  bindPanelAction(panel.querySelector("#hrtrader-save-all"), applyAllSettings);
+
+  function onSettingsEnter(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyAllSettings();
+    }
+  }
+  delayInput.addEventListener("keydown", onSettingsEnter);
+
+  dirButtons.forEach((btn) => {
+    bindPanelAction(btn, () => {
+      pendingDirection = btn.dataset.dir;
+      syncDirectionUI(pendingDirection);
+    });
+  });
+
+  bindPanelAction(backdrop, closePanel);
+
+  const widget = document.createElement("div");
+  widget.id = "hrtrader-widget";
+  widget.innerHTML = `
+    <div id="hrtrader-logo-wrap"><img src="${LOGO_URL}" alt="HRTrader" draggable="false" /></div>
+    <span id="hrtrader-label">${LABEL}</span>
+  `;
+  document.body.appendChild(widget);
+
+  let scanActive = false;
+  let tradeTimer = null;
+  let tapCount = 0;
+  let tapSettleTimer = null;
+  let lastTapAt = 0;
+
+  // MULTI-PLATFORM BUTTON DETECTOR (Quotex & Pocket Option)
+  function getTradeButtons() {
+    // 1. Quotex selectors
+    let upBtn = document.querySelector(".btn.btn-call") || document.querySelector(".btn-call");
+    let downBtn = document.querySelector(".btn.btn-put") || document.querySelector(".btn-put");
+
+    // 2. Pocket Option selectors (যদি Quotex-এরটা না পাওয়া যায়)
+    if (!upBtn) {
+      upBtn = document.querySelector(".btn-call") || 
+              document.querySelector(".btn.call") || 
+              document.querySelector('[data-action="call"]') ||
+              document.querySelector('.divider-vertical[data-type="up"]') ||
+              document.querySelector('.control__up .btn'); // Pocket Option specific fallback
+    }
+    if (!downBtn) {
+      downBtn = document.querySelector(".btn-put") || 
+                document.querySelector(".btn.put") || 
+                document.querySelector('[data-action="put"]') ||
+                document.querySelector('.divider-vertical[data-type="down"]') ||
+                document.querySelector('.control__down .btn'); // Pocket Option specific fallback
+    }
+
+    return { up: upBtn, down: downBtn };
+  }
+
+  function pickTradeButton() {
+    const { up, down } = getTradeButtons();
+    if (!up && !down) return null;
+    if (settings.direction === "up") return up || null;
+    if (settings.direction === "down") return down || null;
+    const pool = [up, down].filter(Boolean);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function placeTrade() {
+    const btn = pickTradeButton();
+    if (!btn) {
+      console.error("HRTrader: target button not found for platform/direction:", settings.direction);
+      return false;
+    }
+    btn.click();
+    
+    // ট্রেডের দিক লগ করার জন্য চেক
+    const isUp = btn.classList.contains("btn-call") || 
+                 btn.id.includes("call") || 
+                 (btn.getAttribute("data-action") && btn.getAttribute("data-action").includes("call")) ||
+                 (btn.closest && btn.closest('.control__up'));
+                 
+    const side = isUp ? "UP" : "DOWN";
+    console.log("HRTrader trade executed:", side, "| mode:", settings.direction);
+    
+    stopScanSession();
+    console.log("HRTrader: Scan auto-stopped immediately after placing trade.");
+    return true;
+  }
+
+  function stopScanSession() {
+    widget.classList.remove("hrtrader-glow");
+    scanOverlay.classList.remove("hrtrader-scan-on");
+    scanActive = false;
+    if (tradeTimer) {
+      clearTimeout(tradeTimer);
+      tradeTimer = null;
+    }
+  }
+
+  function startAutoTrade() {
+    if (scanActive) return;
+    closePanel();
+    scanActive = true;
+    widget.classList.add("hrtrader-glow");
+    scanOverlay.classList.add("hrtrader-scan-on");
+    const delayMs = settings.delaySec * 1000;
+
+    tradeTimer = setTimeout(() => {
+      tradeTimer = null;
+      placeTrade();
+    }, delayMs);
+  }
+
+  function resetTapCounter() {
+    tapCount = 0;
+    if (tapSettleTimer) {
+      clearTimeout(tapSettleTimer);
+      tapSettleTimer = null;
+    }
+  }
+
+  function registerTap() {
+    if (panel.classList.contains("hrtrader-panel-open")) return;
+
+    const now = Date.now();
+    if (now - lastTapAt > TAP_SEQUENCE_MS) tapCount = 0;
+    lastTapAt = now;
+    tapCount += 1;
+
+    if (tapSettleTimer) {
+      clearTimeout(tapSettleTimer);
+      tapSettleTimer = null;
+    }
+
+    if (tapCount >= TAP_REQUIRED) {
+      resetTapCounter();
+      openPanel();
+      return;
+    }
+
+    tapSettleTimer = setTimeout(() => {
+      tapSettleTimer = null;
+      if (tapCount === 1) {
+        if (scanActive) {
+          stopScanSession();
+        } else {
+          startAutoTrade();
+        }
+      }
+      tapCount = 0;
+    }, TAP_SETTLE_MS);
+  }
+
+  /* ——— Drag (mouse + touch) ——— */
+  let dragging = false;
+  let moved = false;
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+  const DRAG_THRESHOLD = 8;
+
+  function clampPosition(left, top) {
+    const rect = widget.getBoundingClientRect();
+    const maxL = window.innerWidth - rect.width;
+    const maxT = window.innerHeight - rect.height;
+    return {
+      left: Math.max(0, Math.min(left, maxL)),
+      top: Math.max(0, Math.min(top, maxT)),
+    };
+  }
+
+  function onPointerDown(clientX, clientY) {
+    dragging = true;
+    moved = false;
+    const r = widget.getBoundingClientRect();
+    startX = clientX;
+    startY = clientY;
+    startLeft = r.left;
+    startTop = r.top;
+    widget.style.transform = "none";
+    widget.style.left = startLeft + "px";
+    widget.style.top = startTop + "px";
+  }
+
+  function onPointerMove(clientX, clientY) {
+    if (!dragging) return;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+      moved = true;
+    }
+    const pos = clampPosition(startLeft + dx, startTop + dy);
+    widget.style.left = pos.left + "px";
+    widget.style.top = pos.top + "px";
+  }
+
+  function onPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    if (!moved) {
+      registerTap();
+    }
+  }
+
+  widget.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    onPointerDown(e.clientX, e.clientY);
+  });
+
+  widget.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      onPointerDown(t.clientX, t.clientY);
+    },
+    { passive: false }
+  );
+
+  document.addEventListener("mousemove", (e) => {
+    onPointerMove(e.clientX, e.clientY);
+  });
+
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!dragging || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      onPointerMove(t.clientX, t.clientY);
+    },
+    { passive: false }
+  );
+
+  document.addEventListener("mouseup", onPointerUp);
+  document.addEventListener("touchend", onPointerUp);
+  document.addEventListener("touchcancel", onPointerUp);
+
+  window.__HRTrader_STOP__ = function () {
+    stopScanSession();
+    resetTapCounter();
+    closePanel();
+    widget.remove();
+    scanOverlay.remove();
+    backdrop.remove();
+    panel.remove();
+    style.remove();
+    delete window.__HRTrader_ACTIVE__;
+    delete window.__HRTrader_STOP__;
+    console.log("HRTrader removed.");
+  };
+
+  syncPanelUI();
+  console.log(
+    "HRTrader Multi-Platform Loaded — Ready for Quotex / Pocket Option"
+  );
+  }
+
+  showPasswordGate(initHRTrader);
+})();
