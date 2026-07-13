@@ -166,20 +166,16 @@
   const TAP_SETTLE_MS = 380;
   const TAP_SEQUENCE_MS = 650;
 
-  const defaults = { delaySec: 10, afterTradeScanSec: 0, direction: "random" };
+  const defaults = { delaySec: 10, direction: "random" };
 
   function parseStored(raw) {
     if (!raw) return null;
     const s = JSON.parse(raw);
     const delaySec = Math.max(1, Math.min(120, Number(s.delaySec) || defaults.delaySec));
-    const afterTradeScanSec = Math.max(
-      0,
-      Math.min(300, Math.round(Number(s.afterTradeScanSec) || 0))
-    );
     const direction = ["up", "down", "random"].includes(s.direction)
       ? s.direction
       : defaults.direction;
-    return { delaySec, afterTradeScanSec, direction };
+    return { delaySec, direction };
   }
 
   function loadSettings() {
@@ -355,12 +351,6 @@
       color: #9fd4ad;
       margin-bottom: 6px;
     }
-    #hrtrader-panel .hrtrader-subhint {
-      margin: -2px 0 6px;
-      font-size: 10px;
-      color: #6a9a78;
-      line-height: 1.3;
-    }
     #hrtrader-panel .hrtrader-input-block {
       display: block;
       width: 100%;
@@ -486,11 +476,6 @@
       <input id="hrtrader-delay-input" class="hrtrader-time-input hrtrader-input-block" type="number" min="1" max="120" step="1" />
     </div>
     <div class="hrtrader-row">
-      <label>After trade scan (seconds)</label>
-      <p class="hrtrader-subhint">0 = stop only when you tap the icon</p>
-      <input id="hrtrader-after-trade-input" class="hrtrader-time-input hrtrader-input-block" type="number" min="0" max="300" step="1" />
-    </div>
-    <div class="hrtrader-row">
       <label>Trade direction</label>
       <div id="hrtrader-dir-group">
         <button type="button" data-dir="up">Up</button>
@@ -510,7 +495,6 @@
   panel.addEventListener("touchend", (e) => e.stopPropagation());
 
   const delayInput = panel.querySelector("#hrtrader-delay-input");
-  const afterTradeInput = panel.querySelector("#hrtrader-after-trade-input");
   const saveStatus = panel.querySelector("#hrtrader-save-status");
   const dirButtons = panel.querySelectorAll("#hrtrader-dir-group button");
   let saveStatusTimer = null;
@@ -524,7 +508,6 @@
 
   function syncPanelUI() {
     delayInput.value = String(settings.delaySec);
-    afterTradeInput.value = String(settings.afterTradeScanSec);
     pendingDirection = settings.direction;
     syncDirectionUI(pendingDirection);
   }
@@ -541,41 +524,22 @@
     saveStatus.textContent = "";
   }
 
-  function showSaveStatus(msg, isError) {
-    saveStatus.textContent = msg;
-    saveStatus.style.color = isError ? "#ff6b6b" : "#00ff66";
-    if (saveStatusTimer) clearTimeout(saveStatusTimer);
-    saveStatusTimer = setTimeout(() => {
-      saveStatus.textContent = "";
-    }, 2500);
-  }
-
   function parseDelayInput() {
     const n = Number(String(delayInput.value).trim());
     if (!Number.isFinite(n) || n < 1) return defaults.delaySec;
     return Math.max(1, Math.min(120, Math.round(n)));
   }
 
-  function parseAfterTradeInput() {
-    const n = Number(String(afterTradeInput.value).trim());
-    if (!Number.isFinite(n) || n < 0) return defaults.afterTradeScanSec;
-    return Math.max(0, Math.min(300, Math.round(n)));
-  }
-
   function applyAllSettings() {
     settings.delaySec = parseDelayInput();
-    settings.afterTradeScanSec = parseAfterTradeInput();
     settings.direction = pendingDirection;
     delayInput.value = String(settings.delaySec);
-    afterTradeInput.value = String(settings.afterTradeScanSec);
     const stored = saveSettings(settings);
     syncPanelUI();
     closePanel();
     console.log(
       "HRTrader: settings saved | delay:",
       settings.delaySec + "s",
-      "| after-trade:",
-      settings.afterTradeScanSec === 0 ? "manual" : settings.afterTradeScanSec + "s",
       "| dir:",
       settings.direction,
       stored ? "" : "(storage blocked)"
@@ -607,7 +571,6 @@
     }
   }
   delayInput.addEventListener("keydown", onSettingsEnter);
-  afterTradeInput.addEventListener("keydown", onSettingsEnter);
 
   dirButtons.forEach((btn) => {
     bindPanelAction(btn, () => {
@@ -628,13 +591,11 @@
 
   let scanActive = false;
   let tradeTimer = null;
-  let afterTradeTimer = null;
   let tapCount = 0;
   let tapSettleTimer = null;
   let lastTapAt = 0;
 
   function getTradeButtons() {
-    // Modified to search for btn-call and btn-put classes globally on the page
     return {
       up: document.querySelector(".btn.btn-call") || document.querySelector(".btn-call"),
       down: document.querySelector(".btn.btn-put") || document.querySelector(".btn-put"),
@@ -658,28 +619,12 @@
     }
     btn.click();
     const side = (btn.classList.contains("btn-call") || btn.id.includes("call")) ? "UP" : "DOWN";
-    console.log("HRTrader trade:", side, "| mode:", settings.direction);
+    console.log("HRTrader trade executed:", side, "| mode:", settings.direction);
+    
+    // ট্রেড সফলভাবে প্লেস হওয়ার পর এখানে স্ক্যান অফ করে দেওয়া হচ্ছে
+    stopScanSession();
+    console.log("HRTrader: Scan auto-stopped immediately after placing trade.");
     return true;
-  }
-
-  function clearAfterTradeTimer() {
-    if (afterTradeTimer) {
-      clearInterval(afterTradeTimer);
-      afterTradeTimer = null;
-    }
-  }
-
-  function scheduleAfterTradeScanStop() {
-    clearAfterTradeTimer();
-    if (!settings.afterTradeScanSec || settings.afterTradeScanSec <= 0) return;
-    const ms = settings.afterTradeScanSec * 1000;
-    afterTradeTimer = setTimeout(() => {
-      afterTradeTimer = null;
-      if (scanActive) {
-        stopScanSession();
-        console.log("HRTrader: scan auto-stopped after trade (" + settings.afterTradeScanSec + "s)");
-      }
-    }, ms);
   }
 
   function stopScanSession() {
@@ -690,13 +635,11 @@
       clearTimeout(tradeTimer);
       tradeTimer = null;
     }
-    clearAfterTradeTimer();
   }
 
   function startAutoTrade() {
     if (scanActive) return;
     closePanel();
-    clearAfterTradeTimer();
     scanActive = true;
     widget.classList.add("hrtrader-glow");
     scanOverlay.classList.add("hrtrader-scan-on");
@@ -705,7 +648,6 @@
     tradeTimer = setTimeout(() => {
       tradeTimer = null;
       placeTrade();
-      scheduleAfterTradeScanStop();
     }, delayMs);
   }
 
@@ -854,8 +796,6 @@
   console.log(
     "HRTrader loaded — 1 tap: scan+trade | 1 tap: stop scan | 3 taps: settings | delay:",
     settings.delaySec + "s",
-    "| after-trade scan:",
-    settings.afterTradeScanSec === 0 ? "manual" : settings.afterTradeScanSec + "s",
     "| dir:",
     settings.direction
   );
