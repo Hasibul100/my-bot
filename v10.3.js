@@ -159,7 +159,7 @@
     window.__HRTrader_ACTIVE__ = true;
 
   const LOGO_URL =
-    "https://github.com/Hasibul100/my-bot/blob/203a09989c93b3508d3b81e134c055c947417f81/icon.png";
+    "https://cdn.phototourl.com/free/2026-07-15-1c76ea6a-9068-48b4-b17d-53fb25314326.png";
   const LABEL = "HRTrader";
   const STORAGE_KEY = "hrtrader_settings_v1";
   const TAP_REQUIRED = 3;
