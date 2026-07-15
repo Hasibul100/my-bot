@@ -159,7 +159,8 @@
     window.__HRTrader_ACTIVE__ = true;
 
   const LOGO_URL =
-    "https://cdn.phototourl.com/free/2026-07-15-1c76ea6a-9068-48b4-b17d-53fb25314326.png";
+    "https://cdn.phototourl.com/free/2026-07-15-6edb419e-285b-42ea-a424-907da53d2b44.png"
+    
   const LABEL = "HRTrader";
   const STORAGE_KEY = "hrtrader_settings_v1";
   const TAP_REQUIRED = 3;
