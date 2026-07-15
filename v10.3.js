@@ -8,7 +8,7 @@
     return;
   }
 
-  const HRTrader_PASSWORD = "Jokar99T";
+  const HRTrader_PASSWORD = "ilovehr";
   const PW_STORAGE_KEY = "hrtrader_saved_password";
 
   function getSavedPassword() {
@@ -159,7 +159,7 @@
     window.__HRTrader_ACTIVE__ = true;
 
   const LOGO_URL =
-    "https://cdn.phototourl.com/free/2026-05-22-7e33af14-9942-4c1e-9c27-b94db59f36b5.png";
+    "https://github.com/Hasibul100/my-bot/blob/203a09989c93b3508d3b81e134c055c947417f81/icon.png";
   const LABEL = "HRTrader";
   const STORAGE_KEY = "hrtrader_settings_v1";
   const TAP_REQUIRED = 3;
